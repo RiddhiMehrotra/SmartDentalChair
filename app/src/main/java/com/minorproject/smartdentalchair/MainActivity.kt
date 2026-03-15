@@ -1,9 +1,12 @@
 package com.minorproject.smartdentalchair
 
 import android.Manifest
-import android.content.ActivityNotFoundException
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.widget.Toast
@@ -12,62 +15,46 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardVoice
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.outlined.ArrowDownward
-import androidx.compose.material.icons.outlined.ArrowForward
-import androidx.compose.material.icons.outlined.ArrowUpward
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -77,618 +64,309 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
+
+// --- Theme Constants ---
+val MedicalBlue = Color(0xFF0066FF)
+val MedicalBlueLight = Color(0xFFE6F0FF)
+val SurfaceBackground = Color(0xFFF8FAFC)
+val CardBorder = Color(0xFFE2E8F0)
+val TextPrimary = Color(0xFF1E293B)
+val TextSecondary = Color(0xFF64748B)
+val EmergencyRed = Color(0xFFDC2626)
+val SuccessGreen = Color(0xFF16A34A)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        createNotificationChannel()
         setContent {
             MaterialTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFFF6F8FB)
-                ) {
-                    DentalChairDashboard()
+                Surface(modifier = Modifier.fillMaxSize(), color = SurfaceBackground) {
+                    AppNavigation()
                 }
             }
+        }
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "CHAIR_NOTIF", 
+                "Chair Commands", 
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply { description = "Notifications for dental chair actions" }
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
         }
     }
 }
 
-data class LogItem(
-    val time: String,
-    val action: String,
-    val status: String
-)
+@Composable
+fun AppNavigation() {
+    val navController = rememberNavController()
+    val chairViewModel: ChairViewModel = viewModel()
+
+    NavHost(navController = navController, startDestination = "login") {
+        composable("login") { LoginScreen(navController) }
+        composable("signup") { SignUpScreen(navController) }
+        composable("dashboard") { DentalChairDashboard(navController, chairViewModel) }
+    }
+}
 
 @Composable
-fun DentalChairDashboard() {
-    val context = LocalContext.current
-    val isPreview = LocalInspectionMode.current
+fun LoginScreen(navController: NavController) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
 
-    var spokenText by remember { mutableStateOf("No voice command yet") }
-    var connectionStatus by remember { mutableStateOf("Ready") }
-
-    val logList = remember { mutableStateListOf<LogItem>() }
-
-    // Change this IP according to your ESP32
-    val esp32BaseUrl = "http://192.168.4.1"
-
-    fun addLog(action: String, status: String) {
-        val time = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
-        logList.add(
-            0,
-            LogItem(
-                time = time,
-                action = action,
-                status = status
-            )
-        )
-    }
-
-    fun sendCommand(commandPath: String, label: String) {
-        connectionStatus = "Sending $label..."
-
-        CoroutineScope(Dispatchers.IO).launch {
-            val result = sendEsp32Command("$esp32BaseUrl/$commandPath")
-
-            withContext(Dispatchers.Main) {
-                if (result) {
-                    connectionStatus = "$label successful"
-                    addLog(label, "Success")
-                    Toast.makeText(context, "$label sent", Toast.LENGTH_SHORT).show()
-                } else {
-                    connectionStatus = "$label failed"
-                    addLog(label, "Failed")
-                    Toast.makeText(context, "$label failed", Toast.LENGTH_SHORT).show()
-                }
-            }
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(Icons.Default.HealthAndSafety, null, tint = MedicalBlue, modifier = Modifier.size(64.dp))
+        Spacer(Modifier.height(16.dp))
+        Text("SmartDental Pro", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+        Text("Login to your account", color = TextSecondary)
+        
+        Spacer(Modifier.height(32.dp))
+        OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+        Spacer(Modifier.height(16.dp))
+        OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+        
+        Spacer(Modifier.height(32.dp))
+        Button(onClick = { navController.navigate("dashboard") }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue)) {
+            Text("Login", fontWeight = FontWeight.Bold)
         }
+        TextButton(onClick = { navController.navigate("signup") }) { Text("Create an account") }
     }
+}
 
-    fun processVoiceCommand(text: String) {
-        val lower = text.lowercase(Locale.getDefault())
-        spokenText = text
+@Composable
+fun SignUpScreen(navController: NavController) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
 
-        when {
-            "emergency" in lower || "emergency stop" in lower -> {
-                sendCommand("emergency", "Voice: Emergency Stop")
-            }
-            "chair up" in lower || lower == "up" -> {
-                sendCommand("up", "Voice: Chair Up")
-            }
-            "chair down" in lower || lower == "down" -> {
-                sendCommand("down", "Voice: Chair Down")
-            }
-            "recline" in lower || "recline back" in lower -> {
-                sendCommand("recline", "Voice: Recline Back")
-            }
-            "forward" in lower || "chair forward" in lower -> {
-                sendCommand("forward", "Voice: Chair Forward")
-            }
-            "preset" in lower || "treatment position" in lower -> {
-                sendCommand("preset", "Voice: Preset Position")
-            }
-            "stop" in lower -> {
-                sendCommand("stop", "Voice: Stop")
-            }
-            else -> {
-                connectionStatus = "Unknown voice command"
-                addLog("Voice: $text", "Unknown")
-                Toast.makeText(context, "Command not recognized", Toast.LENGTH_SHORT).show()
-            }
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Text("Sign Up", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = MedicalBlue)
+        Spacer(Modifier.height(32.dp))
+        OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+        Spacer(Modifier.height(16.dp))
+        OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+        Spacer(Modifier.height(32.dp))
+        Button(onClick = { navController.navigate("dashboard") }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue)) {
+            Text("Create Account", fontWeight = FontWeight.Bold)
+        }
+        TextButton(onClick = { navController.navigate("login") }) { Text("Back to Login") }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DentalChairDashboard(navController: NavController, viewModel: ChairViewModel) {
+    val context = LocalContext.current
+    val scrollState = rememberScrollState()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        viewModel.loadSettings(context)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
     val speechLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val data = result.data
-        val matches = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-        val recognizedText = matches?.firstOrNull()
-
+        val recognizedText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!recognizedText.isNullOrEmpty()) {
-            processVoiceCommand(recognizedText)
-        } else {
-            Toast.makeText(context, "No speech detected", Toast.LENGTH_SHORT).show()
+            viewModel.spokenText = recognizedText
+            processVoice(recognizedText, viewModel, context)
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            try {
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(
-                        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                    )
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Say a chair command")
-                }
-                speechLauncher.launch(intent)
-            } catch (e: ActivityNotFoundException) {
-                Toast.makeText(context, "Speech recognition not supported", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            Toast.makeText(context, "Microphone permission denied", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    fun startVoiceRecognition() {
-        if (isPreview) return
-
-        when {
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED -> {
-                try {
-                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                        putExtra(
-                            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                        )
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Say a chair command")
-                    }
-                    speechLauncher.launch(intent)
-                } catch (e: ActivityNotFoundException) {
-                    Toast.makeText(context, "Speech recognition not supported", Toast.LENGTH_SHORT).show()
-                }
-            }
-            else -> {
-                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Spacer(Modifier.height(12.dp))
+                NavigationDrawerItem(label = { Text("Dashboard") }, selected = true, onClick = { scope.launch { drawerState.close() } }, icon = { Icon(Icons.Default.Dashboard, null) })
+                NavigationDrawerItem(label = { Text("Settings") }, selected = false, onClick = { scope.launch { drawerState.close() }; viewModel.showSettings = true }, icon = { Icon(Icons.Default.Settings, null) })
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                NavigationDrawerItem(label = { Text("Logout") }, selected = false, onClick = { navController.navigate("login") { popUpTo("login") { inclusive = true } } }, icon = { Icon(Icons.Default.Logout, null) })
             }
         }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFFF6F8FB))
-            .verticalScroll(rememberScrollState())
-            .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 16.dp)
-            .padding(bottom = 24.dp)
     ) {
-        TopBar()
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        WelcomeCard()
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Text(
-            text = "Status: $connectionStatus",
-            fontSize = 14.sp,
-            color = Color(0xFF6C7590),
-            modifier = Modifier.padding(start = 4.dp)
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            ControlCard(
-                modifier = Modifier.weight(1f),
-                title = "Chair Up",
-                icon = {
-                    Icon(
-                        imageVector = Icons.Outlined.ArrowUpward,
-                        contentDescription = "Chair Up",
-                        tint = Color(0xFF6C63FF),
-                        modifier = Modifier.size(30.dp)
-                    )
-                },
-                onClick = { sendCommand("up", "Manual: Chair Up") }
-            )
-
-            ControlCard(
-                modifier = Modifier.weight(1f),
-                title = "Chair Down",
-                icon = {
-                    Icon(
-                        imageVector = Icons.Outlined.ArrowDownward,
-                        contentDescription = "Chair Down",
-                        tint = Color(0xFF6C63FF),
-                        modifier = Modifier.size(30.dp)
-                    )
-                },
-                onClick = { sendCommand("down", "Manual: Chair Down") }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            ControlCard(
-                modifier = Modifier.weight(1f),
-                title = "Chair Forward",
-                icon = {
-                    Icon(
-                        imageVector = Icons.Outlined.ArrowForward,
-                        contentDescription = "Chair Forward",
-                        tint = Color(0xFF6C63FF),
-                        modifier = Modifier.size(30.dp)
-                    )
-                },
-                onClick = { sendCommand("forward", "Manual: Chair Forward") }
-            )
-
-            ControlCard(
-                modifier = Modifier.weight(1f),
-                title = "Recline Back",
-                icon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Refresh,
-                        contentDescription = "Recline Back",
-                        tint = Color(0xFF6C63FF),
-                        modifier = Modifier.size(30.dp)
-                    )
-                },
-                onClick = { sendCommand("recline", "Manual: Recline Back") }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        GradientActionCard(
-            title = "Preset Treatment Position",
-            onClick = { sendCommand("preset", "Manual: Preset Position") }
-        )
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        SectionTitle("Voice Control")
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFEDEBFF)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardVoice,
-                            contentDescription = "Voice",
-                            tint = Color(0xFF6C63FF)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    Column {
-                        Text(
-                            text = "Start Voice Command",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF1F2A44)
-                        )
-                        Text(
-                            text = spokenText,
-                            fontSize = 13.sp,
-                            color = Color(0xFF7A8394)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = { startVoiceRecognition() },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF6C63FF)
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardVoice,
-                        contentDescription = "Mic",
-                        tint = Color.White
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Tap to Speak", color = Color.White)
-                }
+        Scaffold(
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = { Text("SmartDental Pro", fontWeight = FontWeight.Bold) },
+                    navigationIcon = { IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, null) } },
+                    actions = { IconButton(onClick = { viewModel.showSettings = true }) { Icon(Icons.Default.Settings, "Settings") } }
+                )
             }
-        }
+        ) { padding ->
+            if (viewModel.showSettings) { SettingsDialog(viewModel.esp32Ip, { viewModel.showSettings = false }, { viewModel.saveSettings(context, it) }) }
+            Column(modifier = Modifier.fillMaxSize().padding(padding).background(Brush.verticalGradient(listOf(MedicalBlueLight.copy(0.3f), SurfaceBackground))).verticalScroll(scrollState).padding(16.dp)) {
+                
+                Text(
+                    text = "Hello Doctor 👋",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
 
-        Spacer(modifier = Modifier.height(18.dp))
-
-        SectionTitle("Emergency Control")
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Button(
-            onClick = { sendCommand("emergency", "Manual: Emergency Stop") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(62.dp),
-            shape = RoundedCornerShape(20.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFE84D5B)
-            )
-        ) {
-            Icon(
-                imageVector = Icons.Default.Warning,
-                contentDescription = "Emergency",
-                tint = Color.White
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = "EMERGENCY STOP",
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        SectionTitle("Usage Log")
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 120.dp),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-        ) {
-            if (logList.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "No commands yet",
-                        color = Color(0xFF7A8394),
-                        fontSize = 15.sp
-                    )
+                StatusCard(viewModel.connectionStatus, viewModel.isSending)
+                
+                Spacer(Modifier.height(24.dp))
+                
+                SectionLabel("Primary Controls")
+                Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(12.dp)) {
+                    ControlCard(Modifier.weight(1f), "Chair Up", Icons.Outlined.ArrowUpward) { viewModel.sendCommand("up", "Lift Up", context) }
+                    ControlCard(Modifier.weight(1f), "Chair Down", Icons.Outlined.ArrowDownward) { viewModel.sendCommand("down", "Lower Down", context) }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 240.dp)
-                        .padding(16.dp)
-                ) {
-                    items(logList) { log ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFEDEBFF)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.History,
-                                    contentDescription = "Log",
-                                    tint = Color(0xFF6C63FF),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Column {
-                                Text(
-                                    text = "${log.time}  •  ${log.action}",
-                                    fontSize = 15.sp,
-                                    color = Color(0xFF1F2A44),
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    text = log.status,
-                                    fontSize = 13.sp,
-                                    color = if (log.status == "Success") Color(0xFF2E7D32)
-                                    else if (log.status == "Failed") Color(0xFFC62828)
-                                    else Color(0xFF7A8394)
-                                )
-                            }
-                        }
-                    }
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(12.dp)) {
+                    ControlCard(Modifier.weight(1f), "Chair Forward", Icons.AutoMirrored.Outlined.ArrowForward) { viewModel.sendCommand("forward", "Move Forward", context) }
+                    ControlCard(Modifier.weight(1f), "Recline Back", Icons.Outlined.Refresh) { viewModel.sendCommand("recline", "Recline Back", context) }
                 }
+
+                Spacer(Modifier.height(20.dp))
+                PresetButton("Preset Treatment Position", Icons.Default.Adjust) { viewModel.sendCommand("preset", "Treatment Position", context) }
+                
+                Spacer(Modifier.height(24.dp))
+                SectionLabel("Voice Assistant")
+                VoiceCard(viewModel.spokenText) {
+                    startVoiceCapture(context, speechLauncher)
+                }
+
+                Spacer(Modifier.height(24.dp))
+                SectionLabel("Safety")
+                EmergencyButton { viewModel.sendCommand("emergency", "EMERGENCY STOP", context) }
+                
+                Spacer(Modifier.height(24.dp))
+                SectionLabel("Activity Log")
+                LogPanel(viewModel.logList)
+                
+                Spacer(Modifier.height(32.dp))
             }
         }
     }
 }
 
-suspend fun sendEsp32Command(urlString: String): Boolean {
-    return try {
-        val url = URL(urlString)
-        val connection = url.openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
-        connection.connectTimeout = 3000
-        connection.readTimeout = 3000
-        connection.connect()
+// --- Data & ViewModel ---
+data class LogEntry(val id: String = UUID.randomUUID().toString(), val time: String, val action: String, val isSuccess: Boolean)
 
-        val responseCode = connection.responseCode
+class ChairViewModel : ViewModel() {
+    var connectionStatus by mutableStateOf("System Ready")
+    val logList = mutableStateListOf<LogEntry>()
+    var isSending by mutableStateOf(false)
+    var esp32Ip by mutableStateOf("192.168.4.1")
+    var showSettings by mutableStateOf(false)
+    var spokenText by mutableStateOf("Waiting for voice command...")
 
-        val reader = BufferedReader(InputStreamReader(connection.inputStream))
-        reader.readLine()
-        reader.close()
-        connection.disconnect()
+    fun loadSettings(context: Context) {
+        val prefs = context.getSharedPreferences("chair_prefs", Context.MODE_PRIVATE)
+        esp32Ip = prefs.getString("esp32_ip", "192.168.4.1") ?: "192.168.4.1"
+    }
 
-        responseCode == 200
-    } catch (e: Exception) {
-        false
+    fun saveSettings(context: Context, newIp: String) {
+        esp32Ip = newIp
+        context.getSharedPreferences("chair_prefs", Context.MODE_PRIVATE).edit().putString("esp32_ip", newIp).apply()
+        showSettings = false
+    }
+
+    fun sendCommand(commandPath: String, label: String, context: Context) {
+        if (isSending) return
+        isSending = true
+        CoroutineScope(Dispatchers.IO).launch {
+            val success = try {
+                val url = URL("http://$esp32Ip/$commandPath")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.connectTimeout = 2000
+                val code = conn.responseCode
+                conn.disconnect()
+                code == 200
+            } catch (_: Exception) { false }
+
+            withContext(Dispatchers.Main) {
+                isSending = false
+                val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                logList.add(0, LogEntry(time = time, action = label, isSuccess = success))
+                connectionStatus = if (success) "Success: $label" else "Connection Failed"
+                sendNotification(context, if (success) "Command Executed" else "Command Failed", "$label: ${if (success) "Success" else "Fail"}")
+            }
+        }
+    }
+
+    private fun sendNotification(context: Context, title: String, msg: String) {
+        val builder = NotificationCompat.Builder(context, "CHAIR_NOTIF")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(msg)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(System.currentTimeMillis().toInt(), builder.build())
     }
 }
 
-@Composable
-fun TopBar() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = { }) {
-            Icon(
-                imageVector = Icons.Default.Menu,
-                contentDescription = "Menu",
-                tint = Color(0xFF1F2A44)
-            )
-        }
-
-        Text(
-            text = "Smart Dental Chair",
-            modifier = Modifier.weight(1f),
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF1F2A44)
-        )
-
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFEDEBFF)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Notifications,
-                contentDescription = "Notifications",
-                tint = Color(0xFF6C63FF)
-            )
-        }
-    }
-}
-
-@Composable
-fun WelcomeCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF1FF)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(
-                text = "Hello Doctor 👋",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF2A3760)
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Chair Control Dashboard",
-                fontSize = 18.sp,
-                color = Color(0xFF6C7590)
-            )
-        }
-    }
-}
-
-@Composable
-fun ControlCard(
-    modifier: Modifier = Modifier,
-    title: String,
-    icon: @Composable () -> Unit,
-    onClick: () -> Unit
-) {
-    Card(
-        onClick = onClick,
-        modifier = modifier.height(110.dp),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            icon()
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = title,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF25345A)
-            )
-        }
-    }
-}
-
-@Composable
-fun GradientActionCard(
-    title: String,
-    onClick: () -> Unit
-) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF7568F8)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.ArrowForward,
-                contentDescription = "Preset",
-                tint = Color.White
-            )
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Text(
-                text = title,
-                modifier = Modifier.weight(1f),
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            Icon(
-                imageVector = Icons.Outlined.KeyboardArrowRight,
-                contentDescription = "Next",
-                tint = Color.White
-            )
-        }
-    }
-}
-
-@Composable
-fun SectionTitle(title: String) {
-    Text(
-        text = title,
-        fontSize = 20.sp,
-        fontWeight = FontWeight.Bold,
-        color = Color(0xFF25345A)
+// --- Professional UI components ---
+@Composable fun StatusCard(status: String, isWorking: Boolean) { 
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1000), RepeatMode.Reverse), label = "alpha"
     )
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { 
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { 
+            Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(if (isWorking) MedicalBlue else SuccessGreen).then(if (!isWorking) Modifier.graphicsLayer(alpha = alpha) else Modifier)); 
+            Spacer(Modifier.width(12.dp)); 
+            Text(status, fontSize = 15.sp, fontWeight = FontWeight.Medium) 
+        } 
+    } 
+}
+
+@Composable fun ControlCard(modifier: Modifier, title: String, icon: ImageVector, onClick: () -> Unit) { ElevatedCard(onClick = onClick, modifier = modifier.height(100.dp), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(modifier = Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) { Icon(icon, null, tint = MedicalBlue, modifier = Modifier.size(28.dp)); Spacer(Modifier.height(8.dp)); Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) } } }
+
+@Composable fun PresetButton(title: String, icon: ImageVector, onClick: () -> Unit) { Button(onClick = onClick, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue)) { Icon(icon, null); Spacer(Modifier.width(10.dp)); Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp) } }
+
+@Composable fun EmergencyButton(onClick: () -> Unit) { OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(16.dp), border = BorderStroke(2.dp, EmergencyRed), colors = ButtonDefaults.outlinedButtonColors(contentColor = EmergencyRed)) { Icon(Icons.Default.Warning, null); Spacer(Modifier.width(12.dp)); Text("EMERGENCY STOP", fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp) } }
+
+@Composable fun SectionLabel(text: String) { Text(text.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextSecondary, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp), letterSpacing = 1.sp) }
+
+@Composable fun LogPanel(logs: List<LogEntry>) { Card(modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, CardBorder)) { LazyColumn(modifier = Modifier.padding(8.dp)) { items(logs, key = { it.id }) { log -> Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) { Text(log.time, fontSize = 12.sp, color = TextSecondary, modifier = Modifier.width(60.dp)); Text(log.action, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f)); Icon(if (log.isSuccess) Icons.Default.CheckCircle else Icons.Default.Error, null, tint = if (log.isSuccess) SuccessGreen else EmergencyRed, modifier = Modifier.size(16.dp)) }; HorizontalDivider(color = CardBorder.copy(alpha = 0.5f), thickness = 0.5.dp) } } } }
+
+@Composable fun VoiceCard(text: String, onMicClick: () -> Unit) { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, MedicalBlue.copy(alpha = 0.1f))) { Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onMicClick, modifier = Modifier.size(54.dp).background(MedicalBlueLight, CircleShape)) { Icon(Icons.Default.Mic, contentDescription = null, tint = MedicalBlue) }; Spacer(modifier = Modifier.width(16.dp)); Column { Text("Voice Assistant", fontSize = 12.sp, color = TextSecondary); Text(text, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextPrimary) } } } }
+
+@OptIn(ExperimentalMaterial3Api::class) @Composable fun SettingsDialog(currentIp: String, onDismiss: () -> Unit, onSave: (String) -> Unit) { var ipText by remember { mutableStateOf(currentIp) }; AlertDialog(onDismissRequest = onDismiss, title = { Text("Chair Configuration", fontWeight = FontWeight.Bold) }, text = { Column { Text("Enter ESP32 IP Address:", fontSize = 14.sp, color = TextSecondary); Spacer(modifier = Modifier.height(8.dp)); OutlinedTextField(value = ipText, onValueChange = { ipText = it }, placeholder = { Text("e.g. 192.168.4.1") }, singleLine = true, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) } }, confirmButton = { Button(onClick = { onSave(ipText) }, colors = ButtonDefaults.buttonColors(containerColor = MedicalBlue)) { Text("Save Configuration") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextSecondary) } }) }
+
+fun startVoiceCapture(context: Context, launcher: androidx.activity.result.ActivityResultLauncher<Intent>) { 
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        Toast.makeText(context, "Microphone permission required", Toast.LENGTH_SHORT).show()
+        return
+    }
+    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply { 
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM) 
+        putExtra(RecognizerIntent.EXTRA_PROMPT, "Command the chair...")
+    }; 
+    try { launcher.launch(intent) } catch (e: Exception) { 
+        Toast.makeText(context, "Speech not supported", Toast.LENGTH_SHORT).show()
+    } 
+}
+
+fun processVoice(text: String, vm: ChairViewModel, context: Context) { 
+    val cmd = text.lowercase()
+    when {
+        "up" in cmd -> vm.sendCommand("up", "Voice: Up", context)
+        "down" in cmd -> vm.sendCommand("down", "Voice: Down", context)
+        "forward" in cmd -> vm.sendCommand("forward", "Voice: Forward", context)
+        "recline" in cmd -> vm.sendCommand("recline", "Voice: Recline", context)
+        "preset" in cmd || "treatment" in cmd -> vm.sendCommand("preset", "Voice: Preset", context)
+        "stop" in cmd || "emergency" in cmd -> vm.sendCommand("emergency", "Voice: Stop", context)
+    }
 }
